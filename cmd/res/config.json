@@ -1,0 +1,21 @@
+{
+  "stream": {
+    "type": "iota",
+    "config": {
+      "provider": {
+        "host": "100.80.245.205",
+        "protocol": "http",
+        "port": 8080
+      },
+      "tangle": {
+        "host": "100.80.245.118",
+        "protocol": "http",
+        "port": 8080
+      },
+      "encoding": "utf-8"
+    }
+  },
+  "logging": {
+    "minLogLevel": "debug"
+  }
+}
