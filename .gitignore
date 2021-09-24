@@ -6,7 +6,7 @@
 *.dll
 *.so
 *.dylib
-cmd/streams-subscriber
+cmd/stream-subscriber
 
 # Test binary, built with `go test -c`
 *.test

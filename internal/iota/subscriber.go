@@ -134,27 +134,46 @@ typedef struct PacketPayloads {
 extern void drop_payloads(packet_payloads_t);
 
  */
+
 func (s *iotaSubscriber) Read() error {
 	var messages *C.unwrapped_messages_t
 	cErr := C.sub_fetch_next_msgs(&messages, s.subscriber)
+	defer C.drop_unwrapped_messages(messages)
+
 	if cErr == C.ERR_OK {
 		count := int(C.get_payloads_count(messages))
 		idx := 0
-		var msg C.packet_payloads_t
 		for idx < count {
-			msg = C.get_indexed_payload(messages, C.size_t(idx))
-			b := C.GoBytes(unsafe.Pointer(msg.public_payload.ptr), C.int(msg.public_payload.size))
+			msg := C.get_indexed_payload(messages, C.size_t(idx))
+			b := C.GoBytes(unsafe.Pointer(msg.masked_payload.ptr), C.int(msg.masked_payload.size))
 			fmt.Println(fmt.Sprintf("Message -- length:%v txt:%s", len(b), string(b)))
 			C.drop_payloads(msg)
 			idx++
 		}
-		C.drop_unwrapped_messages(messages)
 	} else {
 		return errors.New(get_error(cErr))
 	}
 	return nil
 }
 
+/* 2ND READ IMPL ATTEMPT
+func (s *iotaSubscriber) Read() error {
+	msgId := "0c13fc06ab6ad49e5cbe88a942c61ddde62390f03a3c8ba63faa3889eda914690000000000000000:3516b7bbe6da04dbc0c8d03f"
+	address := C.address_from_string(C.CString(msgId))
+	defer C.drop_address(address)
+
+	var payload C.packet_payloads_t
+	cErr := C.sub_receive_signed_packet(&payload, s.subscriber, address)
+	if cErr == C.ERR_OK {
+		b := C.GoBytes(unsafe.Pointer(payload.public_payload.ptr), C.int(payload.public_payload.size))
+		fmt.Println(fmt.Sprintf("Message -- length:%v txt:%s", len(b), string(b)))
+		C.drop_payloads(payload)
+	} else {
+		return errors.New(get_error(cErr))
+	}
+	return nil
+}
+*/
 
 func (s *iotaSubscriber) Close() error {
 	C.sub_drop(s.subscriber)
