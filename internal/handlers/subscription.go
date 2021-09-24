@@ -1,68 +1,41 @@
 package handlers
 
 import (
-	"context"
+	"errors"
 	SdkConfig "github.com/project-alvarium/alvarium-sdk-go/pkg/config"
 	"github.com/project-alvarium/alvarium-sdk-go/pkg/contracts"
+	"github.com/project-alvarium/alvarium-sdk-go/pkg/message"
 	logInterface "github.com/project-alvarium/provider-logging/pkg/interfaces"
-	"github.com/project-alvarium/provider-logging/pkg/logging"
 	"github.com/project-alvarium/stream-subscriber/internal/config"
 	"github.com/project-alvarium/stream-subscriber/internal/interfaces"
 	"github.com/project-alvarium/stream-subscriber/internal/iota"
-	"sync"
-	"time"
+	"github.com/project-alvarium/stream-subscriber/internal/mqtt"
 )
 
+// Subscription is essentially the factory for the different supported streaming platforms.
 type Subscription struct {
 	cfg		config.ApplicationConfig
 	logger  logInterface.Logger
 }
 
-func NewSubscription(cfg config.ApplicationConfig, logger logInterface.Logger) Subscription {
-	return Subscription{
-		cfg: cfg,
-		logger: logger,
-	}
-}
-
-func (s *Subscription) BootstrapHandler(ctx context.Context, wg *sync.WaitGroup) bool {
+func NewSubscription(cfg config.ApplicationConfig, pub chan message.SubscribeWrapper, logger logInterface.Logger) (interfaces.StreamSubscriber, error) {
 	var subscriber interfaces.StreamSubscriber
-	if s.cfg.Stream.Type == contracts.IotaStream {
-		info, ok := s.cfg.Stream.Config.(SdkConfig.IotaStreamConfig)
+	switch cfg.Stream.Type{
+	case contracts.IotaStream:
+		info, ok := cfg.Stream.Config.(SdkConfig.IotaStreamConfig)
 		if !ok {
-			s.logger.Error("invalid cast for IotaStream")
-			return false
+			return nil, errors.New("invalid cast for IotaStream")
 		}
-		subscriber = iota.NewIotaSubscriber(info, s.logger)
+		subscriber = iota.NewIotaSubscriber(info, pub, logger)
+	case contracts.MqttStream:
+		info, ok := cfg.Stream.Config.(SdkConfig.MqttConfig)
+		if !ok {
+			return nil, errors.New("invalid cast for MqttStream")
+		}
+		subscriber = mqtt.NewMqttSubscriber(info, pub, logger)
+	default:
+		return nil, errors.New("invalid value supplied for StreamType")
 	}
 
-	err := subscriber.Connect()
-	if err != nil {
-		s.logger.Error(err.Error())
-		return false
-	}
-
-	cancelled := false
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		for !cancelled {
-			time.Sleep(100 * time.Millisecond)
-			err := subscriber.Read()
-			if err != nil {
-				s.logger.Error(err.Error())
-			}
-		}
-	}()
-
-	wg.Add(1)
-	go func() { // Graceful shutdown
-		defer wg.Done()
-
-		<-ctx.Done()
-		s.logger.Write(logging.InfoLevel, "shutdown received")
-		cancelled = true
-	}()
-	return true
+	return subscriber, nil
 }

@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"flag"
+	"github.com/project-alvarium/alvarium-sdk-go/pkg/message"
 	logConfig "github.com/project-alvarium/provider-logging/pkg/config"
 	logFactory "github.com/project-alvarium/provider-logging/pkg/factories"
 	"github.com/project-alvarium/provider-logging/pkg/logging"
@@ -55,13 +56,20 @@ func main() {
 	logger.Write(logging.DebugLevel, "config loaded successfully")
 	logger.Write(logging.DebugLevel, cfg.AsString())
 
-	sub := handlers.NewSubscription(cfg, logger)
+	chWrapped := make(chan message.SubscribeWrapper)
+	sub, err := handlers.NewSubscription(cfg, chWrapped, logger)
+	if err != nil {
+		logger.Error(err.Error())
+		os.Exit(-1)
+	}
+	writer := handlers.NewConsoleWriter(chWrapped, logger)
 	ctx, cancel := context.WithCancel(context.Background())
 	bootstrap.Run(
 		ctx,
 		cancel,
 		cfg,
 		[]bootstrap.BootstrapHandler{
-			sub.BootstrapHandler,
+			sub.Subscribe,
+			writer.BootstrapHandler,
 		})
 }

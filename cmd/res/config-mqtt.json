@@ -1,0 +1,21 @@
+{
+  "stream": {
+    "type": "mqtt",
+    "config": {
+      "clientId": "alvarium-subscriber",
+      "qos": 0,
+      "user": "mosquitto",
+      "password": "",
+      "provider": {
+        "host": "localhost",
+        "protocol": "tcp",
+        "port": 1883
+      },
+      "cleanness": false,
+      "topics": ["alvarium-test-topic"]
+    }
+  },
+  "logging": {
+    "minLogLevel": "debug"
+  }
+}

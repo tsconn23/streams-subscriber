@@ -8,16 +8,19 @@ package iota
 import "C"
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/project-alvarium/alvarium-sdk-go/pkg/config"
+	"github.com/project-alvarium/alvarium-sdk-go/pkg/message"
 	logInterface "github.com/project-alvarium/provider-logging/pkg/interfaces"
 	"github.com/project-alvarium/provider-logging/pkg/logging"
 	"github.com/project-alvarium/stream-subscriber/internal/interfaces"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
+	"sync"
 	"time"
 	"unsafe"
 )
@@ -37,13 +40,14 @@ const payloadLength = 1024
 
 type iotaSubscriber struct {
 	cfg        config.IotaStreamConfig
+	chPub      chan message.SubscribeWrapper
 	logger     logInterface.Logger
 	keyload    *C.message_links_t // The Keyload indicates a key needed by the publisher to send messages to the stream
 	subscriber *C.subscriber_t    // The publisher is actually subscribed to the stream
 	seed       string
 }
 
-func NewIotaSubscriber(cfg config.IotaStreamConfig, logger logInterface.Logger) interfaces.StreamSubscriber {
+func NewIotaSubscriber(cfg config.IotaStreamConfig, pub chan message.SubscribeWrapper, logger logInterface.Logger) interfaces.StreamSubscriber {
 	bytes := make([]byte, 64)
 	rand.Seed(time.Now().UnixNano())
 	for i := range bytes {
@@ -54,6 +58,7 @@ func NewIotaSubscriber(cfg config.IotaStreamConfig, logger logInterface.Logger) 
 	logger.Write(logging.DebugLevel, fmt.Sprintf("generated streams seed %s", seed))
 	return &iotaSubscriber{
 		cfg:    cfg,
+		chPub:  pub,
 		logger: logger,
 		seed:   seed,
 	}
@@ -135,7 +140,41 @@ extern void drop_payloads(packet_payloads_t);
 
  */
 
-func (s *iotaSubscriber) Read() error {
+func (s *iotaSubscriber) Subscribe(ctx context.Context, wg *sync.WaitGroup) bool  {
+	err := s.Connect()
+	if err != nil {
+		s.logger.Error(err.Error())
+		return false
+	}
+
+	cancelled := false
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		for !cancelled {
+			time.Sleep(100 * time.Millisecond)
+			err := s.read()
+			if err != nil {
+				s.logger.Error(err.Error())
+			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() { // Graceful shutdown
+		defer wg.Done()
+
+		<-ctx.Done()
+		s.logger.Write(logging.InfoLevel, "shutdown received")
+		cancelled = true
+		close(s.chPub)
+	}()
+
+	return true
+}
+
+func (s *iotaSubscriber) read() error {
 	var messages *C.unwrapped_messages_t
 	cErr := C.sub_fetch_next_msgs(&messages, s.subscriber)
 	defer C.drop_unwrapped_messages(messages)
@@ -155,7 +194,6 @@ func (s *iotaSubscriber) Read() error {
 	}
 	return nil
 }
-
 /* 2ND READ IMPL ATTEMPT
 func (s *iotaSubscriber) Read() error {
 	msgId := "0c13fc06ab6ad49e5cbe88a942c61ddde62390f03a3c8ba63faa3889eda914690000000000000000:3516b7bbe6da04dbc0c8d03f"
