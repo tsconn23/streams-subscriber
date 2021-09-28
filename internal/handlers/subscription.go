@@ -16,12 +16,14 @@ import (
 type Subscription struct {
 	cfg		config.ApplicationConfig
 	logger  logInterface.Logger
+	key     string
 }
 
-func NewSubscription(cfg config.ApplicationConfig, logger logInterface.Logger) Subscription {
+func NewSubscription(cfg config.ApplicationConfig, logger logInterface.Logger, key string) Subscription {
 	return Subscription{
 		cfg: cfg,
 		logger: logger,
+		key: key,
 	}
 }
 
@@ -33,7 +35,7 @@ func (s *Subscription) BootstrapHandler(ctx context.Context, wg *sync.WaitGroup)
 			s.logger.Error("invalid cast for IotaStream")
 			return false
 		}
-		subscriber = iota.NewIotaSubscriber(info, s.logger)
+		subscriber = iota.NewIotaSubscriber(info, s.logger, s.key)
 	}
 
 	err := subscriber.Connect()

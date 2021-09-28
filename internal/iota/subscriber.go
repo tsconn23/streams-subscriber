@@ -41,9 +41,10 @@ type iotaSubscriber struct {
 	keyload    *C.message_links_t // The Keyload indicates a key needed by the publisher to send messages to the stream
 	subscriber *C.subscriber_t    // The publisher is actually subscribed to the stream
 	seed       string
+	key        string
 }
 
-func NewIotaSubscriber(cfg config.IotaStreamConfig, logger logInterface.Logger) interfaces.StreamSubscriber {
+func NewIotaSubscriber(cfg config.IotaStreamConfig, logger logInterface.Logger, key string) interfaces.StreamSubscriber {
 	bytes := make([]byte, 64)
 	rand.Seed(time.Now().UnixNano())
 	for i := range bytes {
@@ -56,6 +57,7 @@ func NewIotaSubscriber(cfg config.IotaStreamConfig, logger logInterface.Logger) 
 		cfg:    cfg,
 		logger: logger,
 		seed:   seed,
+		key:    key,
 	}
 }
 
@@ -76,41 +78,47 @@ func (s *iotaSubscriber) Connect() error {
 		return err
 	}
 
-	address := C.address_from_string(C.CString(rawId))
-	cErr = C.sub_receive_announce(s.subscriber, address)
+	var pskid *C.psk_id_t
+	// Store psk
+	cErr = C.sub_store_psk(&pskid, s.subscriber, C.CString(s.key))
 	s.logger.Write(logging.DebugLevel, fmt.Sprintf(get_error(cErr)))
 	if cErr == C.ERR_OK {
-		// Fetch sub link and pk for subscription
-		var subLink *C.address_t
-		var subPk *C.public_key_t
-
-		cErr = C.sub_send_subscribe(&subLink, s.subscriber, address)
+		address := C.address_from_string(C.CString(rawId))
+		cErr = C.sub_receive_announce(s.subscriber, address)
 		s.logger.Write(logging.DebugLevel, fmt.Sprintf(get_error(cErr)))
 		if cErr == C.ERR_OK {
-			cErr = C.sub_get_public_key(&subPk, s.subscriber)
+			// Fetch sub link and pk for subscription
+			var subLink *C.address_t
+			var subPk *C.public_key_t
+
+			cErr = C.sub_send_subscribe(&subLink, s.subscriber, address)
 			s.logger.Write(logging.DebugLevel, fmt.Sprintf(get_error(cErr)))
 			if cErr == C.ERR_OK {
-				subIdStr := C.get_address_id_str(subLink)
-				subPkStr := C.public_key_to_string(subPk)
+				cErr = C.sub_get_public_key(&subPk, s.subscriber)
+				s.logger.Write(logging.DebugLevel, fmt.Sprintf(get_error(cErr)))
+				if cErr == C.ERR_OK {
+					subIdStr := C.get_address_id_str(subLink)
+					subPkStr := C.public_key_to_string(subPk)
 
-				s.logger.Write(logging.DebugLevel, fmt.Sprintf("send subscription request %s", C.GoString(subIdStr)))
-				r := subscriptionRequest{
-					MsgId: C.GoString(subIdStr),
-					Pk:    C.GoString(subPkStr),
+					s.logger.Write(logging.DebugLevel, fmt.Sprintf("send subscription request %s", C.GoString(subIdStr)))
+					r := subscriptionRequest{
+						MsgId: C.GoString(subIdStr),
+						Pk:    C.GoString(subPkStr),
+					}
+					body, _ := json.Marshal(&r)
+					sendSubscriptionIdToAuthor(s.cfg.Provider.Uri(), body)
+					s.logger.Write(logging.DebugLevel, "subscription request sent")
+
+					// Obtain key for publishing messages
+					//s.keyload, err = s.awaitKeyLoad()
+					//if err != nil {
+					//	return err
+					//}
+					// Free generated c strings from mem
+					C.drop_str(subIdStr)
+					C.drop_str(subPkStr)
+					return nil
 				}
-				body, _ := json.Marshal(&r)
-				sendSubscriptionIdToAuthor(s.cfg.Provider.Uri(), body)
-				s.logger.Write(logging.DebugLevel, "subscription request sent")
-
-				// Obtain key for publishing messages
-				//s.keyload, err = s.awaitKeyLoad()
-				//if err != nil {
-				//	return err
-				//}
-				// Free generated c strings from mem
-				C.drop_str(subIdStr)
-				C.drop_str(subPkStr)
-				return nil
 			}
 		}
 	}
@@ -137,8 +145,8 @@ extern void drop_payloads(packet_payloads_t);
 
 func (s *iotaSubscriber) Read() error {
 	var messages *C.unwrapped_messages_t
-	cErr := C.sub_fetch_next_msgs(&messages, s.subscriber)
-	defer C.drop_unwrapped_messages(messages)
+	cErr := C.sub_sync_state(&messages, s.subscriber)
+	//defer C.drop_unwrapped_messages(messages)
 
 	if cErr == C.ERR_OK {
 		count := int(C.get_payloads_count(messages))
