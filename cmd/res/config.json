@@ -17,5 +17,6 @@
   },
   "logging": {
     "minLogLevel": "debug"
-  }
+  },
+  "preSharedKey": "SubscriberPreSharedKey"
 }

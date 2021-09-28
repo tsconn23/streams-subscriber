@@ -55,7 +55,7 @@ func main() {
 	logger.Write(logging.DebugLevel, "config loaded successfully")
 	logger.Write(logging.DebugLevel, cfg.AsString())
 
-	sub := handlers.NewSubscription(cfg, logger)
+	sub := handlers.NewSubscription(cfg, logger, cfg.Key)
 	ctx, cancel := context.WithCancel(context.Background())
 	bootstrap.Run(
 		ctx,

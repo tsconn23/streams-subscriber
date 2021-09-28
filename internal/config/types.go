@@ -11,6 +11,7 @@ import (
 type ApplicationConfig struct {
 	Stream  	SdkConfig.StreamInfo	`json:"stream,omitempty"`
 	Logging 	config.LoggingInfo		`json:"logging,omitempty"`
+	Key         string                  `json:"preSharedKey,omitempty"`
 }
 
 func (a ApplicationConfig) AsString() string {
