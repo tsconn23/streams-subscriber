@@ -109,12 +109,6 @@ func (s *iotaSubscriber) Connect() error {
 					sendSubscriptionIdToAuthor(s.cfg.Provider.Uri(), body)
 					s.logger.Write(logging.DebugLevel, "subscription request sent")
 
-					// Obtain key for publishing messages
-					//s.keyload, err = s.awaitKeyLoad()
-					//if err != nil {
-					//	return err
-					//}
-					// Free generated c strings from mem
 					C.drop_str(subIdStr)
 					C.drop_str(subPkStr)
 					return nil
@@ -124,24 +118,6 @@ func (s *iotaSubscriber) Connect() error {
 	}
 	return errors.New("failed to connect publisher")
 }
-
-/*
-typedef struct Buffer {
-  uint8_t const *ptr;
-  size_t size;
-  size_t cap;
-} buffer_t;
-
-extern void drop_buffer(buffer_t);
-
-typedef struct PacketPayloads {
-  buffer_t public_payload;
-  buffer_t masked_payload;
-} packet_payloads_t;
-
-extern void drop_payloads(packet_payloads_t);
-
- */
 
 func (s *iotaSubscriber) Read() error {
 	var messages *C.unwrapped_messages_t
@@ -153,8 +129,12 @@ func (s *iotaSubscriber) Read() error {
 		idx := 0
 		for idx < count {
 			msg := C.get_indexed_payload(messages, C.size_t(idx))
-			b := C.GoBytes(unsafe.Pointer(msg.masked_payload.ptr), C.int(msg.masked_payload.size))
-			fmt.Println(fmt.Sprintf("Message -- length:%v txt:%s", len(b), string(b)))
+			out := C.GoBytes(unsafe.Pointer(msg.masked_payload.ptr), C.int(msg.masked_payload.size))
+			fmt.Println(msg.masked_payload.ptr, msg.masked_payload.size)
+			// In this example the message is simply written to a string. However if you want to unmarshal the bytes
+			// into a type, you will have to pass the []byte out via a channel rather than calling json.Unmarshal() here.
+			// Doing the latter will result in an error related to an invalid pointer.
+			fmt.Println(fmt.Sprintf("Message -- len:%v txt:%s", len(out), string(out)))
 			C.drop_payloads(msg)
 			idx++
 		}
@@ -164,61 +144,12 @@ func (s *iotaSubscriber) Read() error {
 	return nil
 }
 
-/* 2ND READ IMPL ATTEMPT
-func (s *iotaSubscriber) Read() error {
-	msgId := "0c13fc06ab6ad49e5cbe88a942c61ddde62390f03a3c8ba63faa3889eda914690000000000000000:3516b7bbe6da04dbc0c8d03f"
-	address := C.address_from_string(C.CString(msgId))
-	defer C.drop_address(address)
-
-	var payload C.packet_payloads_t
-	cErr := C.sub_receive_signed_packet(&payload, s.subscriber, address)
-	if cErr == C.ERR_OK {
-		b := C.GoBytes(unsafe.Pointer(payload.public_payload.ptr), C.int(payload.public_payload.size))
-		fmt.Println(fmt.Sprintf("Message -- length:%v txt:%s", len(b), string(b)))
-		C.drop_payloads(payload)
-	} else {
-		return errors.New(get_error(cErr))
-	}
-	return nil
-}
-*/
 
 func (s *iotaSubscriber) Close() error {
 	C.sub_drop(s.subscriber)
 	return nil
 }
 
-/*
-func (s *iotaSubscriber) awaitKeyLoad() (*C.message_links_t, error) {
-	var keyload *C.message_links_t
-	for { // TODO: This should timeout after a configurable period
-		var msgIds *C.next_msg_ids_t
-		// Gen next message ids to look for existing messages
-		cErr := C.sub_gen_next_msg_ids(&msgIds, s.subscriber)
-		s.logger.Write(logging.DebugLevel, fmt.Sprintf(get_error(cErr)))
-		if cErr != C.ERR_OK {
-			return nil, errors.New("failed to generate message ids")
-		}
-		// Search for processed message from these ids and try to process it
-		var processed C.message_links_t
-		cErr = C.sub_receive_keyload_from_ids(&processed, s.subscriber, msgIds)
-		s.logger.Write(logging.DebugLevel, fmt.Sprintf(get_error(cErr)))
-		if cErr != C.ERR_OK {
-			s.logger.Write(logging.DebugLevel, "Keyload not found yet... Checking again...")
-			C.drop_next_msg_ids(msgIds)
-			// Loop until processed is found and processed
-			time.Sleep(3000 * time.Millisecond)
-		} else {
-			s.logger.Write(logging.DebugLevel, "obtained processed successfully")
-			keyload = &processed
-			// Free memory for c msgids object
-			C.drop_next_msg_ids(msgIds)
-			break
-		}
-	}
-	return keyload, nil
-}
-*/
 func (s *iotaSubscriber) getAnnouncementId(url string) (string, error) {
 	type announcementResponse struct {
 		AnnouncementId string `json:"announcement_id"`
